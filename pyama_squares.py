@@ -166,7 +166,7 @@ def parse_args():
             formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('area', metavar="AREA", help="Area per of adhesion site (by default in px²) or named area (see below). When specifying the area in µm² or a named area, specify resolution using '-r'.")
     parser.add_argument('path', type=str, nargs='+', metavar="PATH", help="Path(s) of the pickled file(s) to with the cell contours")
-    parser.add_argument('-m', '--margin', nargs='+', type=float, default=None, help="Add margin(s) around the adhesion site, in percent of the area")
+    parser.add_argument('-m', '--margin', default='100', help="Relative area of the ROI, inclusive adhesion site and margin, in percent of the adhesion site area. Default is 100 (adhesion area without margin). Multiple areas can be specified as comma-separated list.")
     parser.add_argument('-r', '--resolution', default=None, metavar="RES", help="Resolution of the area in px/µm or named microscope resolution (see below).")
     parser.add_argument('-o', '--outdir', default=None, help="Output directory, if result files should not be written to same directory as input file.")
     parser.add_argument('-g', '--glob', action='store_true', help="Treat the given path(s) as Unix filename glob. May be helpful on Windows, where filenames are not expanded.")
@@ -181,10 +181,7 @@ def parse_args():
     else:
         argdict['path'] = args.path
 
-    if not args.margin:
-        argdict['margin'] = [0]
-    else:
-        argdict['margin'] = [m/100 for m in args.margin]
+    argdict['margin'] = [float(x)/100-1 for x in args.margin.split(',') if x]
 
     area_invalid = False
     resolution_required = False
