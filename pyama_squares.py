@@ -42,7 +42,7 @@ def read_bboxes(fn):
     return bboxes
 
 
-def insert_bb(stack, bb, bb_width=None, bb_height=None, frame=None, weighted=False):
+def insert_bb(stack, bb, bb_width=None, bb_height=None, frame=None, weighted=False, ignore_borders=False):
     """Insert a bounding box into a stack.
 
     stack -- the numpy stack in which the bounding box is inserted; must have shape (n_frames, 1, 1, height, width)
@@ -50,6 +50,7 @@ def insert_bb(stack, bb, bb_width=None, bb_height=None, frame=None, weighted=Fal
     bb_width, bb_height -- int, optional arguments to overwrite bounding box size
     frame -- int, frame of `stack` to insert the bounding box; set `None` for all frames
     weighted -- bool, center new bounding box in old bounding box (False) or at centroid of old ROI (True)
+    ignore_borders -- bool, draw (True) or omit (False) ROIs that hit an image border
 
     Writes 1 if the bounding box fits into the stack and 2 if it is cropped.
     """
@@ -82,7 +83,13 @@ def insert_bb(stack, bb, bb_width=None, bb_height=None, frame=None, weighted=Fal
             frame_name = '...'
         else:
             frame_name = frame + 1
-        print(f"Bbox (x={x1}:{x2}, y={y1}:{y2})[{frame_name}] hits border (w={bb_width}, h={bb_height})", file=sys.stderr)
+        if ignore_borders:
+            msg = "INCLUDE"
+        else:
+            msg = "EXCLUDE"
+        print(f"{msg} box (x={x1}:{x2}, y={y1}:{y2})[{frame_name}] that hits border (w={bb_width}, h={bb_height})", file=sys.stderr)
+        if not ignore_borders:
+            return
         if x1 < 0:
             x1 = 0
         if x2 > width:
@@ -97,7 +104,7 @@ def insert_bb(stack, bb, bb_width=None, bb_height=None, frame=None, weighted=Fal
     stack[frame, ..., y1:y2, x1:x2] = val
 
 
-def varying_margins_centered(bboxes, area, margins=(0,)):
+def varying_margins_centered(bboxes, area, margins=(0,), ignore_borders=False):
     """Make binary npz stack with centered ROI and varying margins"""
     n_frames = bboxes[None]['n_frames']
     width = bboxes[None]['width']
@@ -117,7 +124,7 @@ def varying_margins_centered(bboxes, area, margins=(0,)):
             for fr, bb in tr.items():
                 if fr is ...:
                     continue
-                insert_bb(stack, bb, bb_width=bb_length, bb_height=bb_length, frame=fr, weighted=True)
+                insert_bb(stack, bb, bb_width=bb_length, bb_height=bb_length, frame=fr, weighted=True, ignore_borders=ignore_borders)
 
     return stacks
 
@@ -168,6 +175,7 @@ def parse_args():
     parser.add_argument('path', type=str, nargs='+', metavar="PATH", help="Path(s) of the pickled file(s) to with the cell contours")
     parser.add_argument('-m', '--margin', default='100', help="Relative area of the ROI, inclusive adhesion site and margin, in percent of the adhesion site area. Default is 100 (adhesion area without margin). Multiple areas can be specified as comma-separated list.")
     parser.add_argument('-r', '--resolution', default=None, metavar="RES", help="Resolution of the area in px/µm or named microscope resolution (see below).")
+    parser.add_argument('-b', '--ignore-borders', action='store_true', help="Do not exclude ROIs that hit the border.")
     parser.add_argument('-o', '--outdir', default=None, help="Output directory, if result files should not be written to same directory as input file.")
     parser.add_argument('-g', '--glob', action='store_true', help="Treat the given path(s) as Unix filename glob. May be helpful on Windows, where filenames are not expanded.")
     parser.add_argument('-s', '--silent', action='store_true', help="Suppress status output.")
@@ -213,16 +221,17 @@ def parse_args():
             area *= res**2
     argdict['area'] = area
 
+    argdict['ignore_borders'] = args.ignore_borders
     argdict['outdir'] = args.outdir
     argdict['verbose'] = not args.silent
 
     return argdict
 
 
-def main(path, area, margin, outdir=None, verbose=True):
+def main(path, area, margin, outdir=None, verbose=True, ignore_borders=False):
     for p in path:
         bboxes = read_bboxes(p)
-        stacks = varying_margins_centered(bboxes, area, margins=margin)
+        stacks = varying_margins_centered(bboxes, area, margins=margin, ignore_borders=ignore_borders)
         export_squares(stacks, p, outdir=outdir, verbose=verbose)
 
 
