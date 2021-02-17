@@ -43,6 +43,41 @@ def read_bboxes(fn):
     return bboxes
 
 
+def make_empty_bboxes(coords, area):
+    """Create bounding boxes at given positions.
+
+    `coords` is an iterable of coordinates of the bounding box centers.
+    The coordinates have the x-coordinate as first and the y-coordinate
+    as second argument.
+    `area` is the adhesion site area.
+    
+    Returns a dict as required by the parameter `bboxes` of
+    `varying_margins_centered`.
+    """
+    w = np.rint(np.sqrt(area))
+    h = np.rint(area / w)
+    w2 = w // 2
+    h2 = h // 2
+    area = w * h
+    
+    bboxes = {}
+    for i, c in enumerate(coords):
+        x1 = np.rint(c[0] - w2)
+        y1 = np.rint(c[1] - h2)
+        x2 = x1 + w
+        y2 = y1 + h
+        bboxes[i] = {None: dict(
+            x_min=x1,
+            x_max=x2,
+            x_mean=(x1+x2)/2,
+            y_min=y1,
+            y_max=y2,
+            y_mean=(y1+y2)/2,
+            area=area,
+        )}
+    return bboxes
+
+
 def insert_bb(stack, bb, bb_width=None, bb_height=None, frame=None, weighted=False, ignore_borders=False):
     """Insert a bounding box into a stack.
 
@@ -105,16 +140,16 @@ def insert_bb(stack, bb, bb_width=None, bb_height=None, frame=None, weighted=Fal
     stack[frame, ..., y1:y2, x1:x2] = val
 
 
-def varying_margins_centered(bboxes, area, margins=(0,), ignore_borders=False):
+def varying_margins_centered(area, *bboxes, margins=(0,), ignore_borders=False):
     """Make binary npz stack with centered ROI and varying margins"""
-    n_frames = bboxes[None]['n_frames']
-    width = bboxes[None]['width']
-    height = bboxes[None]['height']
+    n_frames = bboxes[0][None]['n_frames']
+    width = bboxes[0][None]['width']
+    height = bboxes[0][None]['height']
     stacks = {}
     for margin in margins:
         stacks[margin] = np.zeros((n_frames, height, width), dtype=np.uint8)
 
-    for k, tr in bboxes.items():
+    for k, tr in (it for bbx in bboxes if bbx for it in bbx.items()):
         if k is None:
             continue
 
@@ -172,7 +207,7 @@ def parse_args():
             description=DOC,
             epilog=make_epilog(),
             formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('area', metavar="AREA", help="Area per of adhesion site (by default in px²) or named area (see below). When specifying the area in µm² or a named area, specify resolution using '-r'.")
+    parser.add_argument('area', metavar="AREA", help="Area of adhesion site (by default in px²) or named area (see below). When specifying the area in µm² or a named area, specify resolution using '-r'.")
     parser.add_argument('path', type=str, nargs='+', metavar="PATH", help="Path(s) of the pickled file(s) to with the cell contours")
     parser.add_argument('-m', '--margin', default='100', help="Relative area of the ROI, inclusive adhesion site and margin, in percent of the adhesion site area. Default is 100 (adhesion area without margin). Multiple areas can be specified as comma-separated list.")
     parser.add_argument('-r', '--resolution', default=None, metavar="RES", help="Resolution of the area in px/µm or named microscope resolution (see below).")
@@ -180,6 +215,7 @@ def parse_args():
     parser.add_argument('-o', '--outdir', default=None, help="Output directory, if result files should not be written to same directory as input file.")
     parser.add_argument('-g', '--glob', action='store_true', help="Treat the given path(s) as Unix filename glob. May be helpful on Windows, where filenames are not expanded.")
     parser.add_argument('-s', '--silent', action='store_true', help="Suppress status output.")
+    parser.add_argument('-x', '--empty', action='append', default=[], help="Insert a ROI centered at the given coordinate, e.g. to analyze an empty adhesion site. Specify the center as comma-separated list, e.g. '100,200' for x=100 and y=200 (in pixels). Multiple ROIs can be inserted by separating their coordinates with a semicolon or by specifying this option multiple times.")
     args = parser.parse_args()
 
     argdict = {}
@@ -217,10 +253,27 @@ def parse_args():
             if resolution_required and args.resolution is None:
                 raise ValueError("No resolution given. Resolution must be specified when specifying a named area.")
             else:
-                raise ValueError("Invalid resolution '{args.resolution}'. Resolution must be a numeric value or a name of a predefined resolution:")
+                raise ValueError("Invalid resolution '{args.resolution}'. Resolution must be a numeric value or a name of a predefined resolution.")
         else:
             area *= res**2
     argdict['area'] = area
+    
+    argdict['empty'] = []
+    for coord in (c for C in args.empty for c in C.split(';') if c):
+        cc = []
+        for csp in coord.split(','):
+            try:
+                cc.append(int(csp.strip()))
+            except Exception:
+                cc = None
+                break
+        else:
+            if len(cc) == 2:
+                argdict['empty'].append(cc)
+            else:
+                cc = None
+        if not cc:
+            raise ValueError(f"Invalid coordinate '{coord}'. Coordinates must consist of two integers separated by a comma.")
 
     argdict['ignore_borders'] = args.ignore_borders
     argdict['outdir'] = args.outdir
@@ -229,10 +282,12 @@ def parse_args():
     return argdict
 
 
-def main(path, area, margin, outdir=None, verbose=True, ignore_borders=False):
+def main(path, area, margin, outdir=None, verbose=True, ignore_borders=False, empty=None):
     for p in path:
         bboxes = read_bboxes(p)
-        stacks = varying_margins_centered(bboxes, area, margins=margin, ignore_borders=ignore_borders)
+        if empty:
+            empty = make_empty_bboxes(empty, area)
+        stacks = varying_margins_centered(area, bboxes, empty, margins=margin, ignore_borders=ignore_borders)
         export_squares(stacks, p, outdir=outdir, verbose=verbose)
 
 
