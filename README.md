@@ -10,7 +10,10 @@ source env/bin/activate
 pip install -r requirements.txt
 ```
 
-Windows users may need to adapt the commands.
+Windows or Anaconda users may need to adapt the commands.
+
+When using Anaconda in Windows, the script `pyama_squares.cmd` may be used to open a command window with the alias `pyama_squares` defined.
+In this case, you may need to adjust the script to match your Anaconda installation path.
 
 ## Usage
 ### Input
