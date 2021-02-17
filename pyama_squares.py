@@ -12,6 +12,7 @@ import numpy as np
 
 AREAS = {
         # Named areas in µm²
+        "Q20": 20**2,
         "Q25": 25**2,
         "Q30": 30**2,
     }
